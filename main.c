@@ -75,7 +75,7 @@
 static void HeartBeatTask(void *pvParameters);
 static void ReadingTask(void *pvParameters);
 static void PrintingTask(void *pvParameters);
-static void verifyOperation(void);
+static bool verifyOperation(void);
 static int executeOperation(void);
 
 // callbacks & functions
@@ -109,7 +109,6 @@ static void ReadingTask(void *pvParameters) {
             if (newCaracter == 13) {
                 BaseType_t xHigherPriorityTaskWokenSemaphore = pdFALSE;
                 xSemaphoreGiveFromISR(xComputationComplete, xHigherPriorityTaskWokenSemaphore);
-                uart_print("ENTER!");
             } else {
                 buffer[bufferPointer] = newCaracter;
                 bufferPointer = bufferPointer+1;
@@ -123,19 +122,37 @@ static void PrintingTask(void *pvParameters) {
     const TickType_t xPeriod = pdMS_TO_TICKS(100);
     char message[10];
     for(;;){
-        if (
-            xSemaphoreTake(xComputationComplete, portMAX_DELAY) == pdPASS) {
-            verifyOperation();
-            executeOperation();
-            //sprintf(message, "X-accel: %.1f, Y-accel: %.1f, Z-accel: %.1f \n\r", mean_acc_x, mean_acc_y, mean_acc_z);
-            //uart_print(message);
-            uart_print("Semaforo pillado!");
+        if (xSemaphoreTake(xComputationComplete, portMAX_DELAY) == pdPASS) {
+            if(verifyOperation()) {
+                executeOperation();
+            }
         }
     }
 }
 
-static void verifyOperation(void) {
-    uart_print("Verifying");
+static bool verifyOperation(void) {
+    if (bufferPointer < 2) {
+        uart_print("No hay 3 caracteres");
+        return false;
+    }
+
+    if (buffer[bufferPointer-1] != "*" &&
+        buffer[bufferPointer-1] != "-" &&
+        buffer[bufferPointer-1] != "+" &&
+        buffer[bufferPointer-1] != "/") {
+
+        uart_print("Codigo de operacion no valido");
+        return false;
+    }
+
+    if (buffer[bufferPointer] < 0 ||
+        buffer[bufferPointer] > 9 ||
+        buffer[bufferPointer-2] < 0 ||
+        buffer[bufferPointer-2] > 9) {
+
+        uart_print("Alguno de los operandos o ambos no es un numero entre 0 y 9");
+        return false;
+    }
 }
 
 static int executeOperation(void) {
@@ -148,9 +165,10 @@ void uart_rx_callback(void){
     uart_get_char(&data);
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     xQueueSendFromISR(xQueueUART, &data, xHigherPriorityTaskWoken);
-    uart_print("Sent to queue");
 
-
+    char output[1];
+    sprintf(output, "%c", data);
+    uart_print(output);
 }
 
 
