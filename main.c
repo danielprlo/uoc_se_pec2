@@ -58,7 +58,7 @@
 /*----------------------------------------------------------------------------*/
 #define TASK_PRIORITY               ( tskIDLE_PRIORITY + 2 )
 #define HEARTBEAT_TASK_PRIORITY     ( tskIDLE_PRIORITY + 1 )
-#define READ_TASK_PRIORITY          ( tskIDLE_PRIORITY + 2 )
+#define READ_TASK_PRIORITY          ( tskIDLE_PRIORITY + 5 )
 
 #define TASK_STACK_SIZE             ( 1024 )
 #define HEARTBEAT_STACK_SIZE        ( 128 )
@@ -75,6 +75,8 @@
 static void HeartBeatTask(void *pvParameters);
 static void ReadingTask(void *pvParameters);
 static void PrintingTask(void *pvParameters);
+static void verifyOperation(void);
+static int executeOperation(void);
 
 // callbacks & functions
 void uart_rx_callback(void);
@@ -82,6 +84,8 @@ void uart_rx_callback(void);
 //Task sync tools and variables
 SemaphoreHandle_t xComputationComplete;
 QueueHandle_t xQueueUART;
+char buffer[50];
+int bufferPointer;
 
 /*----------------------------------------------------------------------------*/
 
@@ -98,33 +102,55 @@ static void HeartBeatTask(void *pvParameters){
 static void ReadingTask(void *pvParameters) {
     const TickType_t xPeriod = pdMS_TO_TICKS(100);
     char newCaracter;
-
+    char message[50];
     for(;;){
         if (xQueueReceive(xQueueUART, &newCaracter, portMAX_DELAY) == pdPASS) {
-            uart_print("Caracter received");
+            //Detect enter
+            if (newCaracter == 13) {
+                BaseType_t xHigherPriorityTaskWokenSemaphore = pdFALSE;
+                xSemaphoreGiveFromISR(xComputationComplete, xHigherPriorityTaskWokenSemaphore);
+                uart_print("ENTER!");
+            } else {
+                buffer[bufferPointer] = newCaracter;
+                bufferPointer = bufferPointer+1;
+            }
+
         }
     }
 }
 
 static void PrintingTask(void *pvParameters) {
     const TickType_t xPeriod = pdMS_TO_TICKS(100);
+    char message[10];
     for(;;){
-        if (xSemaphoreTake(xComputationComplete, portMAX_DELAY) == pdPASS) {
-            uart_print("A leer");
+        if (
+            xSemaphoreTake(xComputationComplete, portMAX_DELAY) == pdPASS) {
+            verifyOperation();
+            executeOperation();
+            //sprintf(message, "X-accel: %.1f, Y-accel: %.1f, Z-accel: %.1f \n\r", mean_acc_x, mean_acc_y, mean_acc_z);
+            //uart_print(message);
+            uart_print("Semaforo pillado!");
         }
     }
+}
+
+static void verifyOperation(void) {
+    uart_print("Verifying");
+}
+
+static int executeOperation(void) {
+    uart_print("Executing");
 }
 
 
 void uart_rx_callback(void){
     char data;
     uart_get_char(&data);
-    if (data == 'p') {
-        xQueueSendFromISR(xQueueUART, data, pdFALSE);
-        uart_print("p");
-    } else {
-        uart_print(data);
-    }
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    xQueueSendFromISR(xQueueUART, &data, xHigherPriorityTaskWoken);
+    uart_print("Sent to queue");
+
+
 }
 
 
@@ -133,7 +159,7 @@ void uart_rx_callback(void){
 int main(int argc, char** argv)
 {
     int32_t retVal = -1;
-
+    bufferPointer = 0;
     // Initialize semaphores and queue
     xComputationComplete = xSemaphoreCreateBinary ();
     xQueueUART = xQueueCreate( QUEUE_SIZE, sizeof( char ) );
