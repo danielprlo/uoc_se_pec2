@@ -33,11 +33,15 @@
  */
 
 /*----------------------------------------------------------------------------*/
-
+#include "driverlib.h"
 /* Standard includes */
 #include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
 #include <stdio.h>
-#include "driverlib.h"
+#include <string.h>
+
+
 /* Free-RTOS includes */
 #include "FreeRTOS.h"
 #include "task.h"
@@ -48,13 +52,13 @@
 /* MSP432 drivers includes */
 #include "msp432_launchpad_board.h"
 #include "uart_driver.h"
-
+#include "helper.h"
 
 // defines
 /*----------------------------------------------------------------------------*/
 #define TASK_PRIORITY               ( tskIDLE_PRIORITY + 2 )
 #define HEARTBEAT_TASK_PRIORITY     ( tskIDLE_PRIORITY + 1 )
-#define READ_TASK_PRIORITY          ( tskIDLE_PRIORITY + 5 )
+#define READ_TASK_PRIORITY          ( tskIDLE_PRIORITY + 2 )
 
 #define TASK_STACK_SIZE             ( 1024 )
 #define HEARTBEAT_STACK_SIZE        ( 128 )
@@ -77,8 +81,6 @@ void uart_rx_callback(void);
 
 //Task sync tools and variables
 SemaphoreHandle_t xComputationComplete;
-SemaphoreHandle_t xUartReadingSemaphore;
-SemaphoreHandle_t xReadingTaskSemaphore;
 QueueHandle_t xQueueUART;
 
 /*----------------------------------------------------------------------------*/
@@ -95,9 +97,11 @@ static void HeartBeatTask(void *pvParameters){
 
 static void ReadingTask(void *pvParameters) {
     const TickType_t xPeriod = pdMS_TO_TICKS(100);
+    char newCaracter;
+
     for(;;){
-        if (xSemaphoreTake(xReadingTaskSemaphore, xPeriod) == pdPASS) {
-            uart_print("A leer");
+        if (xQueueReceive(xQueueUART, &newCaracter, portMAX_DELAY) == pdPASS) {
+            uart_print("Caracter received");
         }
     }
 }
@@ -105,7 +109,7 @@ static void ReadingTask(void *pvParameters) {
 static void PrintingTask(void *pvParameters) {
     const TickType_t xPeriod = pdMS_TO_TICKS(100);
     for(;;){
-        if (xSemaphoreTake(xComputationComplete, xPeriod) == pdPASS) {
+        if (xSemaphoreTake(xComputationComplete, portMAX_DELAY) == pdPASS) {
             uart_print("A leer");
         }
     }
@@ -115,12 +119,12 @@ static void PrintingTask(void *pvParameters) {
 void uart_rx_callback(void){
     char data;
     uart_get_char(&data);
-    uart_print("test");
-    uart_print(data);
-
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    xSemaphoreGiveFromISR(xReadingTaskSemaphore, &xHigherPriorityTaskWoken);
-    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+    if (data == 'p') {
+        xQueueSendFromISR(xQueueUART, data, pdFALSE);
+        uart_print("p");
+    } else {
+        uart_print(data);
+    }
 }
 
 
@@ -132,16 +136,14 @@ int main(int argc, char** argv)
 
     // Initialize semaphores and queue
     xComputationComplete = xSemaphoreCreateBinary ();
-    xUartReadingSemaphore = xSemaphoreCreateBinary();
-    xReadingTaskSemaphore = xSemaphoreCreateBinary();
     xQueueUART = xQueueCreate( QUEUE_SIZE, sizeof( char ) );
-    CS_setDCOCenteredFrequency(CS_DCO_FREQUENCY_12);
+
     uart_init(uart_rx_callback);
 
     /* Initialize the board */
     board_init();
 
-    if ( (xComputationComplete != NULL) && (xQueueUART != NULL) && (xUartReadingSemaphore != NULL) && (xReadingTaskSemaphore != NULL)) {
+    if ( (xComputationComplete != NULL) && (xQueueUART != NULL)) {
 
         /* Create HeartBeat task */
         retVal = xTaskCreate(HeartBeatTask, "HeartBeatTask", HEARTBEAT_STACK_SIZE, NULL, HEARTBEAT_TASK_PRIORITY, NULL );
