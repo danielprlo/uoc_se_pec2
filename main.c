@@ -75,12 +75,15 @@
 static void HeartBeatTask(void *pvParameters);
 static void ReadingTask(void *pvParameters);
 static void PrintingTask(void *pvParameters);
-static bool verifyOperation(void);
-static int executeOperation(void);
+
 
 // callbacks & functions
 void uart_rx_callback(void);
-
+static bool verifyOperation(void);
+static int executeOperation(void);
+static void printInt(int data);
+static char getCharacter(char);
+static void printChar(char data);
 //Task sync tools and variables
 SemaphoreHandle_t xComputationComplete;
 QueueHandle_t xQueueUART;
@@ -99,32 +102,40 @@ static void HeartBeatTask(void *pvParameters){
     }
 }
 
-static void ReadingTask(void *pvParameters) {
-    const TickType_t xPeriod = pdMS_TO_TICKS(100);
-    char newCaracter;
-    char message[50];
-    for(;;){
-        if (xQueueReceive(xQueueUART, &newCaracter, portMAX_DELAY) == pdPASS) {
-            //Detect enter
-            if (newCaracter == 13) {
-                BaseType_t xHigherPriorityTaskWokenSemaphore = pdFALSE;
-                xSemaphoreGiveFromISR(xComputationComplete, xHigherPriorityTaskWokenSemaphore);
-            } else {
-                buffer[bufferPointer] = newCaracter;
-                bufferPointer = bufferPointer+1;
-            }
+void uart_rx_callback(void){
+    char data;
+    uart_get_char(&data);
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    xQueueSendFromISR(xQueueUART, &data, xHigherPriorityTaskWoken);
+    printChar(data);
+}
 
+static void ReadingTask(void *pvParameters) {
+    char newCharacter;
+    for(;;){
+        if (xQueueReceive(xQueueUART, &newCharacter, portMAX_DELAY) == pdPASS) {
+            if (newCharacter == 13) {
+                BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+                xSemaphoreGiveFromISR(xComputationComplete, &xHigherPriorityTaskWoken);
+
+            } else {
+                buffer[bufferPointer] = newCharacter;
+                bufferPointer = bufferPointer+1;
+                if (bufferPointer == 50) {
+                    bufferPointer = 0;
+                }
+            }
         }
     }
 }
 
 static void PrintingTask(void *pvParameters) {
-    const TickType_t xPeriod = pdMS_TO_TICKS(100);
     char message[10];
     for(;;){
         if (xSemaphoreTake(xComputationComplete, portMAX_DELAY) == pdPASS) {
             if(verifyOperation()) {
-                executeOperation();
+                int result = executeOperation();
+                printInt(result);
             }
         }
     }
@@ -136,19 +147,24 @@ static bool verifyOperation(void) {
         return false;
     }
 
-    if (buffer[bufferPointer-1] != "*" &&
-        buffer[bufferPointer-1] != "-" &&
-        buffer[bufferPointer-1] != "+" &&
-        buffer[bufferPointer-1] != "/") {
+    char buffedChar = buffer[bufferPointer-2];
+
+    if (buffedChar != '+' &&
+        buffedChar != '/' &&
+        buffedChar != '-' &&
+        buffedChar != '*') {
 
         uart_print("Codigo de operacion no valido");
         return false;
     }
 
-    if (buffer[bufferPointer] < 0 ||
-        buffer[bufferPointer] > 9 ||
-        buffer[bufferPointer-2] < 0 ||
-        buffer[bufferPointer-2] > 9) {
+    char buffedOp1 = buffer[bufferPointer-1];
+    char buffedOp2 = buffer[bufferPointer-3];
+
+    if (buffedOp1 < '0' ||
+        buffedOp1 > '9' ||
+        buffedOp2 < '0' ||
+        buffedOp2 > '9') {
 
         uart_print("Alguno de los operandos o ambos no es un numero entre 0 y 9");
         return false;
@@ -156,18 +172,44 @@ static bool verifyOperation(void) {
 }
 
 static int executeOperation(void) {
-    uart_print("Executing");
+    char buffedOperator = buffer[bufferPointer-2];
+    char buffedOp1      = buffer[bufferPointer-1];
+    char buffedOp2      = buffer[bufferPointer-3];
+
+    int intOp1 = (int)buffedOp1-48;
+    int intOp2 = (int)buffedOp2-48;
+
+    int result;
+
+    if (buffedOperator == '+') {
+        result = intOp1 + intOp2;
+    }
+
+    if (buffedOperator == '-') {
+        result = intOp1 - intOp2;
+    }
+
+    if (buffedOperator == '*') {
+        result = intOp1 * intOp2;
+    }
+
+    if (buffedOperator == '/') {
+        result = (int) (intOp1 / intOp2);
+    }
+
+    return result;
+}
+
+static void printInt(int data) {
+    char output[1];
+    sprintf(output, " = %d", data);
+    uart_print(output);
 }
 
 
-void uart_rx_callback(void){
-    char data;
-    uart_get_char(&data);
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    xQueueSendFromISR(xQueueUART, &data, xHigherPriorityTaskWoken);
-
+static void printChar(char data) {
     char output[1];
-    sprintf(output, "%c", data);
+    sprintf(output, " = %c", data);
     uart_print(output);
 }
 
@@ -176,6 +218,7 @@ void uart_rx_callback(void){
 
 int main(int argc, char** argv)
 {
+
     int32_t retVal = -1;
     bufferPointer = 0;
     // Initialize semaphores and queue
