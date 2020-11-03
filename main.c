@@ -115,9 +115,7 @@ static void ReadingTask(void *pvParameters) {
     for(;;){
         if (xQueueReceive(xQueueUART, &newCharacter, portMAX_DELAY) == pdPASS) {
             if (newCharacter == 13) {
-                BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-                xSemaphoreGiveFromISR(xComputationComplete, &xHigherPriorityTaskWoken);
-
+                xSemaphoreGive(xComputationComplete);
             } else {
                 buffer[bufferPointer] = newCharacter;
                 bufferPointer = bufferPointer+1;
@@ -182,19 +180,19 @@ static int executeOperation(void) {
     int result;
 
     if (buffedOperator == '+') {
-        result = intOp1 + intOp2;
+        result = intOp2 + intOp1;
     }
 
     if (buffedOperator == '-') {
-        result = intOp1 - intOp2;
+        result = intOp2 - intOp1;
     }
 
     if (buffedOperator == '*') {
-        result = intOp1 * intOp2;
+        result = intOp2 * intOp1;
     }
 
     if (buffedOperator == '/') {
-        result = (int) (intOp1 / intOp2);
+        return (int)(intOp2 / intOp1);
     }
 
     return result;
@@ -209,7 +207,7 @@ static void printInt(int data) {
 
 static void printChar(char data) {
     char output[1];
-    sprintf(output, " = %c", data);
+    sprintf(output, "%c", data);
     uart_print(output);
 }
 
@@ -218,7 +216,6 @@ static void printChar(char data) {
 
 int main(int argc, char** argv)
 {
-
     int32_t retVal = -1;
     bufferPointer = 0;
     // Initialize semaphores and queue
