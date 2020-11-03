@@ -33,14 +33,9 @@
  */
 
 /*----------------------------------------------------------------------------*/
-#include "driverlib.h"
 /* Standard includes */
 #include <stdlib.h>
-#include <stdint.h>
-#include <stdbool.h>
 #include <stdio.h>
-#include <string.h>
-
 
 /* Free-RTOS includes */
 #include "FreeRTOS.h"
@@ -52,43 +47,37 @@
 /* MSP432 drivers includes */
 #include "msp432_launchpad_board.h"
 #include "uart_driver.h"
-#include "helper.h"
 
 // defines
 /*----------------------------------------------------------------------------*/
 #define TASK_PRIORITY               ( tskIDLE_PRIORITY + 2 )
 #define HEARTBEAT_TASK_PRIORITY     ( tskIDLE_PRIORITY + 1 )
 #define READ_TASK_PRIORITY          ( tskIDLE_PRIORITY + 5 )
-
 #define TASK_STACK_SIZE             ( 1024 )
 #define HEARTBEAT_STACK_SIZE        ( 128 )
-
 #define QUEUE_SIZE                  ( 50 )
-
 #define HEART_BEAT_ON_TIME          ( 10 )
 #define HEART_BEAT_OFF_TIME         ( 990 )
 /*----------------------------------------------------------------------------*/
-
-
 
 // Tasks
 static void HeartBeatTask(void *pvParameters);
 static void ReadingTask(void *pvParameters);
 static void PrintingTask(void *pvParameters);
 
-
 // callbacks & functions
-void uart_rx_callback(void);
+static void uart_rx_callback(void);
 static bool verifyOperation(void);
 static int executeOperation(void);
 static void printInt(int data);
 static void printResult(int data);
 static void printChar(char data);
+
 //Task sync tools and variables
 SemaphoreHandle_t xComputationComplete;
-QueueHandle_t xQueueUART;
-char buffer[50];
-int bufferPointer;
+QueueHandle_t     xQueueUART;
+char              buffer[50];
+int               bufferPointer;
 
 /*----------------------------------------------------------------------------*/
 
@@ -101,23 +90,17 @@ static void HeartBeatTask(void *pvParameters){
     }
 }
 
-void uart_rx_callback(void){
-    char data;
-    uart_get_char(&data);
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    xQueueSendFromISR(xQueueUART, &data, xHigherPriorityTaskWoken);
-    //printChar(data);
-}
-
 static void ReadingTask(void *pvParameters) {
     char newCharacter;
     for(;;){
         if (xQueueReceive(xQueueUART, &newCharacter, portMAX_DELAY) == pdPASS) {
+            //13 corresponds with the Enter key.
             if (newCharacter == 13) {
                 xSemaphoreGive(xComputationComplete);
             } else {
                 buffer[bufferPointer] = newCharacter;
-                bufferPointer = bufferPointer+1;
+                bufferPointer         = bufferPointer+1;
+
                 if (bufferPointer == 50) {
                     bufferPointer = 0;
                 }
@@ -127,7 +110,6 @@ static void ReadingTask(void *pvParameters) {
 }
 
 static void PrintingTask(void *pvParameters) {
-
     for(;;){
         if (xSemaphoreTake(xComputationComplete, portMAX_DELAY) == pdPASS) {
             if(verifyOperation()) {
@@ -205,23 +187,17 @@ static void printResult(int result)
     char buffedOperator = buffer[bufferPointer-2];
     char buffedOp1      = buffer[bufferPointer-1];
     char buffedOp2      = buffer[bufferPointer-3];
+
     sprintf(output, "%c %c %c = %d", buffedOp2, buffedOperator, buffedOp1, result);
     uart_print(output);
 }
 
-static void printInt(int data) {
-    char output[1];
-    sprintf(output, "= %d", data);
-    uart_print(output);
+static void uart_rx_callback(void){
+    char data;
+    uart_get_char(&data);
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    xQueueSendFromISR(xQueueUART, &data, xHigherPriorityTaskWoken);
 }
-
-
-static void printChar(char data) {
-    char output[1];
-    sprintf(output, "%c", data);
-    uart_print(output);
-}
-
 
 /*----------------------------------------------------------------------------*/
 
@@ -233,6 +209,7 @@ int main(int argc, char** argv)
     xComputationComplete = xSemaphoreCreateBinary ();
     xQueueUART = xQueueCreate( QUEUE_SIZE, sizeof( char ) );
 
+    // Initialize uart callback
     uart_init(uart_rx_callback);
 
     /* Initialize the board */
@@ -260,7 +237,6 @@ int main(int argc, char** argv)
             led_on(MSP432_LAUNCHPAD_LED_RED);
             while(1);
         }
-
 
         /* Start the task scheduler */
         vTaskStartScheduler();
