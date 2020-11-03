@@ -82,7 +82,7 @@ void uart_rx_callback(void);
 static bool verifyOperation(void);
 static int executeOperation(void);
 static void printInt(int data);
-static char getCharacter(char);
+static void printResult(int data);
 static void printChar(char data);
 //Task sync tools and variables
 SemaphoreHandle_t xComputationComplete;
@@ -93,7 +93,6 @@ int bufferPointer;
 /*----------------------------------------------------------------------------*/
 
 static void HeartBeatTask(void *pvParameters){
-
     for(;;){
         led_toggle(MSP432_LAUNCHPAD_LED_RED);
         vTaskDelay( pdMS_TO_TICKS(HEART_BEAT_ON_TIME) );
@@ -107,7 +106,7 @@ void uart_rx_callback(void){
     uart_get_char(&data);
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     xQueueSendFromISR(xQueueUART, &data, xHigherPriorityTaskWoken);
-    printChar(data);
+    //printChar(data);
 }
 
 static void ReadingTask(void *pvParameters) {
@@ -128,12 +127,12 @@ static void ReadingTask(void *pvParameters) {
 }
 
 static void PrintingTask(void *pvParameters) {
-    char message[10];
+
     for(;;){
         if (xSemaphoreTake(xComputationComplete, portMAX_DELAY) == pdPASS) {
             if(verifyOperation()) {
                 int result = executeOperation();
-                printInt(result);
+                printResult(result);
             }
         }
     }
@@ -167,6 +166,8 @@ static bool verifyOperation(void) {
         uart_print("Alguno de los operandos o ambos no es un numero entre 0 y 9");
         return false;
     }
+
+    return true;
 }
 
 static int executeOperation(void) {
@@ -198,9 +199,19 @@ static int executeOperation(void) {
     return result;
 }
 
+static void printResult(int result)
+{
+    char output[10];
+    char buffedOperator = buffer[bufferPointer-2];
+    char buffedOp1      = buffer[bufferPointer-1];
+    char buffedOp2      = buffer[bufferPointer-3];
+    sprintf(output, "%c %c %c = %d", buffedOp2, buffedOperator, buffedOp1, result);
+    uart_print(output);
+}
+
 static void printInt(int data) {
     char output[1];
-    sprintf(output, " = %d", data);
+    sprintf(output, "= %d", data);
     uart_print(output);
 }
 
